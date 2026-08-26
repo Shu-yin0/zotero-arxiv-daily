@@ -34,7 +34,11 @@ jobs:
           printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
           echo "Use custom config: "
           cat config/custom.yaml
-          uv run src/zotero_arxiv_daily/main.py
+          uv run src/zotero_arxiv_daily/main.py \
+            llm.content_mode=translate_abstract \
+            llm.generation_kwargs.max_tokens=1536 \
+            email.timezone=Asia/Shanghai \
+            executor.deduplicate=true
 
       - name: Persist paper history
         if: success()
