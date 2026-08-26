@@ -3,9 +3,13 @@
 import smtplib
 import tarfile
 import io
+import datetime
+from email import message_from_string
+from email.header import decode_header, make_header
 
 import pytest
 
+import zotero_arxiv_daily.utils as utils
 from zotero_arxiv_daily.utils import glob_match, send_email, extract_tex_code_from_tar, _bm25_pick
 from tests.canned_responses import make_stub_smtp
 
@@ -131,6 +135,25 @@ def test_send_email_starttls_success(config, monkeypatch):
     assert recipients == ["test@example.com"]
     # Body is a full MIME message (base64-encoded). Check the raw MIME string.
     assert "text/html" in body
+
+
+def test_send_email_subject_uses_configured_timezone(config, monkeypatch):
+    class FixedDatetime(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime.datetime(2026, 8, 25, 16, 30, tzinfo=datetime.timezone.utc)
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    sent = []
+    config.email.timezone = "Asia/Shanghai"
+    monkeypatch.setattr(utils.datetime, "datetime", FixedDatetime)
+    monkeypatch.setattr(smtplib, "SMTP", make_stub_smtp(sent))
+
+    send_email(config, "<html>hello</html>")
+
+    message = message_from_string(sent[0][2])
+    subject = str(make_header(decode_header(message["Subject"])))
+    assert subject == "Daily arXiv 2026/08/26"
 
 
 def test_send_email_falls_back_to_ssl(config, monkeypatch):
