@@ -281,3 +281,68 @@ def test_run_no_papers_send_empty_true(config, monkeypatch):
     assert len(sent) == 1, "Email should be sent even with no papers when send_empty=true"
     _, _, body = sent[0]
     assert "text/html" in body
+
+
+def _make_deduplicating_executor(tmp_path, papers):
+    from types import SimpleNamespace
+
+    from tests.canned_responses import make_sample_corpus, make_stub_openai_client
+    from zotero_arxiv_daily.history import PaperHistory
+
+    executor = Executor.__new__(Executor)
+    executor.config = OmegaConf.create({
+        "executor": {"max_paper_num": 1, "send_empty": False},
+        "llm": {
+            "language": "Chinese",
+            "content_mode": "translate_abstract",
+            "generation_kwargs": {"model": "test", "max_tokens": 100},
+        },
+    })
+    executor.paper_history = PaperHistory(tmp_path / "paper-history.json")
+    executor.openai_client = make_stub_openai_client()
+    executor.retrievers = {
+        "arxiv": SimpleNamespace(retrieve_papers=lambda: papers),
+    }
+    executor.reranker = SimpleNamespace(rerank=lambda candidates, corpus: candidates)
+    executor.fetch_zotero_corpus = make_sample_corpus
+    executor.filter_corpus = lambda corpus: corpus
+    return executor
+
+
+def test_run_deduplicates_and_records_all_candidates_after_email(tmp_path, monkeypatch):
+    from tests.canned_responses import make_sample_paper
+    from zotero_arxiv_daily.history import paper_key
+
+    papers = [
+        make_sample_paper(url="https://arxiv.org/abs/2608.00001v1"),
+        make_sample_paper(url="https://arxiv.org/abs/2608.00002v1"),
+    ]
+    executor = _make_deduplicating_executor(tmp_path, papers)
+    sent = []
+    monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", lambda config, html: sent.append(html))
+
+    executor.run()
+
+    assert len(sent) == 1
+    assert set(executor.paper_history.keys) == {paper_key(paper) for paper in papers}
+
+    executor.run()
+    assert len(sent) == 1, "Previously seen papers should not generate another email"
+
+
+def test_run_does_not_record_history_when_email_fails(tmp_path, monkeypatch):
+    from tests.canned_responses import make_sample_paper
+
+    paper = make_sample_paper(url="https://arxiv.org/abs/2608.00001v1")
+    executor = _make_deduplicating_executor(tmp_path, [paper])
+
+    def fail_to_send(config, html):
+        raise RuntimeError("SMTP unavailable")
+
+    monkeypatch.setattr("zotero_arxiv_daily.executor.send_email", fail_to_send)
+
+    with pytest.raises(RuntimeError, match="SMTP unavailable"):
+        executor.run()
+
+    assert executor.paper_history.keys == []
+    assert not executor.paper_history.path.exists()

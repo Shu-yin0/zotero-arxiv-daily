@@ -55,6 +55,53 @@ def test_tldr_truncates_long_prompt(llm_params):
     assert result is not None
 
 
+def test_translate_abstract_mode_uses_faithful_translation_prompt(llm_params):
+    from types import SimpleNamespace
+
+    requests = []
+
+    def create(**kwargs):
+        requests.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="这是摘要的完整翻译。"))]
+        )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    llm_params["language"] = "Chinese"
+    llm_params["content_mode"] = "translate_abstract"
+    paper = make_sample_paper()
+
+    result = paper.generate_tldr(client, llm_params)
+
+    assert result == "这是摘要的完整翻译。"
+    assert paper.summary_label == "中文摘要"
+    prompt = requests[0]["messages"][1]["content"]
+    assert "Do not summarize, omit, expand" in prompt
+    assert paper.abstract in prompt
+    assert paper.full_text not in prompt
+
+
+def test_translate_abstract_fallback_is_labeled_as_original(llm_params):
+    from types import SimpleNamespace
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kwargs: (_ for _ in ()).throw(RuntimeError("API down"))
+            )
+        )
+    )
+    llm_params["content_mode"] = "translate_abstract"
+    paper = make_sample_paper()
+
+    result = paper.generate_tldr(client, llm_params)
+
+    assert result == paper.abstract
+    assert paper.summary_label == "Original Abstract"
+
+
 # ---------------------------------------------------------------------------
 # generate_affiliations
 # ---------------------------------------------------------------------------

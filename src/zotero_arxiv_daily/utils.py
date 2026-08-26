@@ -9,6 +9,7 @@ from email.mime.text import MIMEText
 from email.utils import parseaddr, formataddr
 from loguru import logger
 import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from omegaconf import DictConfig
 import pymupdf
 import pymupdf.layout
@@ -152,7 +153,13 @@ def send_email(config:DictConfig, html:str):
     msg = MIMEText(html, 'html', 'utf-8')
     msg['From'] = _format_addr('Github Action <%s>' % sender)
     msg['To'] = _format_addr('You <%s>' % receiver)
-    today = datetime.datetime.now().strftime('%Y/%m/%d')
+    timezone_name = config.email.get('timezone', 'UTC')
+    try:
+        timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        logger.warning(f"Unknown email timezone {timezone_name}; falling back to UTC")
+        timezone = datetime.timezone.utc
+    today = datetime.datetime.now(timezone).strftime('%Y/%m/%d')
     msg['Subject'] = Header(f'Daily arXiv {today}', 'utf-8').encode()
 
     try:

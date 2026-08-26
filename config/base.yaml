@@ -21,6 +21,7 @@ email:
   smtp_server: ??? # The SMTP server that sends the email. Ask your email provider (Gmail, QQ, Outlook, ...) for its SMTP server. Example: smtp.qq.com
   smtp_port: ??? # The port of SMTP server. Example: 465
   sender_password: ??? # The password of the sender account. Note that it's not necessarily the password for logging in the e-mail client, but the authentication code for SMTP service. Ask your email provider for this. Example: abcdefghijklmn
+  timezone: UTC # IANA timezone used in the email subject. Example: Asia/Shanghai
 
 llm:
   api:
@@ -31,6 +32,7 @@ llm:
     max_tokens: 16384
     model: ???
   language: English # Preferred language for the TL;DR. Example: English
+  content_mode: tldr # Email content mode: 'tldr' or 'translate_abstract'.
 
 reranker:
   local:
@@ -51,3 +53,6 @@ executor:
   max_paper_num: 100 # The maximum number of the papers presented in the email. Example: 100
   source: ??? # The sources of papers to retrieve. Example: ['arxiv','biorxiv','medrxiv','chemrxiv']
   reranker: local # The reranker to use. Example: 'local' or 'api'
+  deduplicate: false # Skip papers already recorded in history_file.
+  history_file: .github/paper-history.json # Persistent sent-paper history path.
+  history_limit: 5000 # Maximum number of stable paper IDs to retain.

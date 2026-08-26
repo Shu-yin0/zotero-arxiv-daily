@@ -11,6 +11,7 @@ from .construct_email import render_email
 from .utils import send_email
 from openai import OpenAI
 from tqdm import tqdm
+from .history import PaperHistory
 
 
 def normalize_path_patterns(patterns: list[str] | ListConfig | None, config_key: str) -> list[str] | None:
@@ -39,6 +40,12 @@ class Executor:
         }
         self.reranker = get_reranker_cls(config.executor.reranker)(config)
         self.openai_client = OpenAI(api_key=config.llm.api.key, base_url=config.llm.api.base_url)
+        self.paper_history = None
+        if config.executor.get("deduplicate", False):
+            self.paper_history = PaperHistory(
+                config.executor.get("history_file", ".github/paper-history.json"),
+                config.executor.get("history_limit", 5000),
+            )
     def fetch_zotero_corpus(self) -> list[CorpusPaper]:
         logger.info("Fetching zotero corpus")
         zot = zotero.Zotero(self.config.zotero.user_id, 'user', self.config.zotero.api_key)
@@ -106,6 +113,13 @@ class Executor:
             logger.info(f"Retrieved {len(papers)} {source} papers")
             all_papers.extend(papers)
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
+        retrieved_papers = all_papers
+        if self.paper_history is not None:
+            all_papers = self.paper_history.filter_unseen(all_papers)
+            logger.info(
+                f"Filtered {len(retrieved_papers) - len(all_papers)} previously seen papers; "
+                f"{len(all_papers)} new papers remain"
+            )
         reranked_papers = []
         if len(all_papers) > 0:
             logger.info("Reranking papers...")
@@ -122,3 +136,6 @@ class Executor:
         email_content = render_email(reranked_papers)
         send_email(self.config, email_content)
         logger.info("Email sent successfully")
+        if self.paper_history is not None:
+            self.paper_history.record(retrieved_papers)
+            logger.info(f"Updated paper history at {self.paper_history.path}")

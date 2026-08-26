@@ -18,24 +18,42 @@ class Paper:
     pdf_url: Optional[str] = None
     full_text: Optional[str] = None
     tldr: Optional[str] = None
+    summary_label: str = "TLDR"
     affiliations: Optional[list[str]] = None
     score: Optional[float] = None
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')
-        prompt = f"Given the following information of a paper, generate a one-sentence TLDR summary in {lang}:\n\n"
-        if self.title:
-            prompt += f"Title:\n {self.title}\n\n"
+        content_mode = llm_params.get('content_mode', 'tldr')
+        if content_mode == 'translate_abstract':
+            if not self.abstract:
+                logger.warning(f"No abstract is provided for {self.url}")
+                return "Failed to translate abstract. No abstract is provided"
+            prompt = (
+                f"Translate the following scientific paper abstract faithfully into {lang}. "
+                "Do not summarize, omit, expand, or add commentary. Preserve technical terms, "
+                "numbers, symbols, and the paragraph structure. Return only the translation.\n\n"
+                f"Title: {self.title}\n\nAbstract: {self.abstract}"
+            )
+            system_prompt = (
+                f"You are a professional scientific translator. Translate faithfully into {lang} "
+                "without changing the scientific meaning."
+            )
+        else:
+            prompt = f"Given the following information of a paper, generate a one-sentence TLDR summary in {lang}:\n\n"
+            system_prompt = f"You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user. Your answer should be in {lang}."
+            if self.title:
+                prompt += f"Title:\n {self.title}\n\n"
 
-        if self.abstract:
-            prompt += f"Abstract: {self.abstract}\n\n"
+            if self.abstract:
+                prompt += f"Abstract: {self.abstract}\n\n"
 
-        if self.full_text:
-            prompt += f"Preview of main content:\n {self.full_text}\n\n"
+            if self.full_text:
+                prompt += f"Preview of main content:\n {self.full_text}\n\n"
 
-        if not self.full_text and not self.abstract:
-            logger.warning(f"Neither full text nor abstract is provided for {self.url}")
-            return "Failed to generate TLDR. Neither full text nor abstract is provided"
+            if not self.full_text and not self.abstract:
+                logger.warning(f"Neither full text nor abstract is provided for {self.url}")
+                return "Failed to generate TLDR. Neither full text nor abstract is provided"
         
         # use gpt-4o tokenizer for estimation
         enc = tiktoken.encoding_for_model("gpt-4o")
@@ -47,7 +65,7 @@ class Paper:
             messages=[
                 {
                     "role": "system",
-                    "content": f"You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user. Your answer should be in {lang}.",
+                    "content": system_prompt,
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -57,6 +75,8 @@ class Paper:
         return tldr
     
     def generate_tldr(self, openai_client:OpenAI,llm_params:dict) -> str:
+        content_mode = llm_params.get('content_mode', 'tldr')
+        self.summary_label = "中文摘要" if content_mode == 'translate_abstract' else "TLDR"
         try:
             tldr = self._generate_tldr_with_llm(openai_client,llm_params)
             self.tldr = tldr
@@ -64,6 +84,8 @@ class Paper:
         except Exception as e:
             logger.warning(f"Failed to generate tldr of {self.url}: {e}")
             tldr = self.abstract
+            if content_mode == 'translate_abstract':
+                self.summary_label = "Original Abstract"
             self.tldr = tldr
             return tldr
 

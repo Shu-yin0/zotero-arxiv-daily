@@ -12,6 +12,20 @@ def test_render_email_with_papers():
     assert "MIT" in html
 
 
+def test_render_email_uses_paper_summary_label():
+    paper = make_sample_paper(
+        score=7.5,
+        tldr="这是摘要的完整翻译。",
+        summary_label="中文摘要",
+        affiliations=["MIT"],
+    )
+
+    html = render_email([paper])
+
+    assert "<strong>中文摘要:</strong>" in html
+    assert "这是摘要的完整翻译。" in html
+
+
 def test_render_email_empty_list():
     html = render_email([])
     assert "No Papers Today" in html
