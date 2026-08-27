@@ -2,10 +2,16 @@ name: Send emails daily
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 22 * * *'
+    # Start five minutes early to avoid GitHub Actions' high-load hour boundary.
+    # The job waits below and never sends before 08:00 Asia/Shanghai.
+    - cron: '55 23 * * *'
 
 permissions:
   contents: write
+
+concurrency:
+  group: daily-arxiv-email
+  cancel-in-progress: false
 
 jobs:
   calculate-and-send:
@@ -19,6 +25,14 @@ jobs:
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
+
+      - name: Wait until 08:00 Beijing time
+        run: |
+          target=$(TZ=Asia/Shanghai date -d 'today 08:00' +%s)
+          now=$(date +%s)
+          if [ "$now" -lt "$target" ]; then
+            sleep "$((target - now))"
+          fi
 
       - name: Run script
         env:
