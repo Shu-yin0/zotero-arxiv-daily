@@ -63,6 +63,28 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
     assert set(p.title for p in papers) == set(e.title for e in new_entries)
 
 
+def test_arxiv_retriever_retries_transient_api_errors(config, mock_feedparser, monkeypatch):
+    fake_result = SimpleNamespace(title="Recovered paper")
+    calls = {"count": 0}
+
+    class FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        def results(self, search):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise arxiv_retriever.arxiv.HTTPError("https://export.arxiv.org", 0, 503)
+            return iter([fake_result])
+
+    monkeypatch.setattr(arxiv_retriever.arxiv, "Client", FakeClient)
+    monkeypatch.setattr(arxiv_retriever, "sleep", lambda _: None)
+
+    retriever = ArxivRetriever(config)
+    assert retriever._retrieve_raw_papers() == [fake_result]
+    assert calls["count"] == 2
+
+
 def test_run_with_hard_timeout_returns_value():
     result = _run_with_hard_timeout(
         _sleep_and_return, ("done", 0.01), timeout=1, operation="test op", paper_title="paper"
