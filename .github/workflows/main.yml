@@ -2,9 +2,11 @@ name: Send emails daily
 on:
   workflow_dispatch:
   schedule:
-    # Start five minutes early to avoid GitHub Actions' high-load hour boundary.
-    # The job waits below and never sends before 08:00 Asia/Shanghai.
-    - cron: '55 23 * * *'
+    # Start before 08:00 Beijing and add staggered backups. GitHub may delay or
+    # drop individual scheduled events; sent-paper history prevents duplicates.
+    - cron: '50 23 * * *'
+    - cron: '10,30,50 0 * * *'
+    - cron: '10 1 * * *'
 
 permissions:
   contents: write
@@ -35,6 +37,7 @@ jobs:
           fi
 
       - name: Run script
+        timeout-minutes: 45
         env:
           ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
           ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
@@ -48,11 +51,20 @@ jobs:
           printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
           echo "Use custom config: "
           cat config/custom.yaml
-          uv run src/zotero_arxiv_daily/main.py \
-            llm.content_mode=translate_abstract \
-            llm.generation_kwargs.max_tokens=1536 \
-            email.timezone=Asia/Shanghai \
-            executor.deduplicate=true
+          for attempt in 1 2 3; do
+            if uv run src/zotero_arxiv_daily/main.py \
+              llm.content_mode=translate_abstract \
+              llm.generation_kwargs.max_tokens=1536 \
+              email.timezone=Asia/Shanghai \
+              executor.deduplicate=true; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt $attempt failed; retrying in 120 seconds."
+              sleep 120
+            fi
+          done
+          exit 1
 
       - name: Persist paper history
         if: success()
